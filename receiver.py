@@ -38,8 +38,9 @@ def bits_to_num(bits):
     return int("".join([str(i) for i in bits]), 2)
 
 
-lst = []
-cipher_text = b''
+lst = {}
+cipher_text = {}
+payloads = {}
 
 
 # Function to parse the received packets
@@ -51,35 +52,49 @@ def parse(pkt):
 
     flag = pkt[TCP].flags
     sport = pkt[TCP].sport
+    sip = pkt[IP].src
 
     # Check if the packet is the one we are interested in
     if flag == 0x40 and sport == 123:
         dst_port = pkt[TCP].dport
-        if dst_port == 4523:
-            try:
-                msg = cipher.decrypt(cipher_text, None).decode()
-                print(msg)
-                cipher_text = b''
-                return
-            except ValueError:
-                print(cipher_text)
 
         list_bits = num_to_bits(dst_port)
 
         payload = pkt[TCP].payload
+
         bytes_of_payload = bytes.fromhex(bytes_hex(payload).decode())
 
-        lst.append(list_bits[len(bytes_of_payload.decode())])
+        if len(bytes_of_payload) % 16 == 0:
+            try:
+                msg = cipher.decrypt(cipher_text[sip], b'')
+                # msg = cipher_text[sip]
+                print(sip, msg)
+                cipher_text[sip] = b''
+                return
+            except ValueError as e:
+                print(e)
+                print(cipher_text[sip])
 
-        if len(lst) == 8:
-            num = bits_to_num(lst)
-            cipher_text += bytes([num])
-            lst = []
+        # if lst contains ip address
+        if sip in lst:
+            lst[sip].append(list_bits[len(bytes_of_payload) % 16])
+            payloads[sip] += bytes_of_payload
+        else:
+            lst[sip] = [list_bits[len(bytes_of_payload) % 16]]
+            payloads[sip] = bytes_of_payload
+
+        if len(lst[sip]) == 8:
+            num = bits_to_num(lst[sip])
+            if sip not in cipher_text:
+                cipher_text[sip] = bytes([num])
+            else:
+                cipher_text[sip] += bytes([num])
+            lst[sip] = []
 
 
 # Function to sniff packets
 def server():
-    sniff(iface="lo0", prn=parse)
+    sniff(iface="eth0", prn=parse)
 
 
 # Run the server
